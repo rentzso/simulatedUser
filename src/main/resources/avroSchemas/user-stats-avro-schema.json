@@ -1,0 +1,9 @@
+{
+  "fields": [
+    { "name": "user_id", "type": "int" },
+    { "name": "is_simple", "type": "boolean" },
+    { "name": "num_user_topics", "type":"int"}
+  ],
+  "name": "userstatsrecord",
+  "type": "record"
+}
