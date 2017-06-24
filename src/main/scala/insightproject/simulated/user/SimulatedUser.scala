@@ -9,8 +9,9 @@ import org.apache.http.client.methods.{HttpGet, HttpPost}
 import org.apache.http.impl.client.HttpClientBuilder
 import org.apache.http.entity.{ContentType, StringEntity}
 import org.apache.http.util.EntityUtils
-import org.apache.log4j.{Logger, PropertyConfigurator}
+import org.apache.log4j.{Level, Logger, PropertyConfigurator}
 import play.api.libs.json._
+
 import scala.collection.JavaConversions._
 import scala.util.Random
 import org.apache.kafka.clients.producer._
@@ -21,7 +22,7 @@ object SimulatedUser {
   val apiUrl = sys.env.getOrElse("FLASK_ENDPOINT", "http://localhost")
   val logger = Logger.getLogger("ElasticUser")
   PropertyConfigurator.configure("log4j.properties")
-
+  logger.setLevel(Level.toLevel(sys.env.getOrElse("LOG4J_LEVEL", "INFO")))
   def main(args: Array[String]): Unit = {
     if (args.size == 2) {
       run(0, args(0).toBoolean, args(1))
@@ -37,7 +38,7 @@ object SimulatedUser {
       println(
         """Usage:
           |java -cp simulatedUser-assembly-1.0.jar insightproject.simulated.user.SimulatedUser \
-          |<true|false> <numUsers(optional)>
+          |<true|false> <topic> <numUsers(optional)>
         """.stripMargin)
     }
 
@@ -50,8 +51,7 @@ object SimulatedUser {
     while (true) {
       logger.info(s"User $userId visited ${result.url}")
       logger.info(s"topics ${topics}")
-      val sample = Random.shuffle(topics).take(10).toList
-      val recommendations = getRecommendations(userId, sample, isSimple)
+      val recommendations = getRecommendations(userId, topics.toList, isSimple)
       val choice = random.nextInt(Math.min(10, recommendations.size))
       result = recommendations(choice)
       topics = topics.union(result.topics.toSet)
@@ -68,6 +68,7 @@ object SimulatedUser {
     props.put("bootstrap.servers", sys.env.getOrElse("BOOTSTRAP_SERVERS", "localhost:9092"))
     props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer")
     props.put("value.serializer", "org.apache.kafka.common.serialization.ByteArraySerializer")
+    props.put("batch.size", "10")
     new KafkaProducer[String, Array[Byte]](props)
   }
   def getRecommendations(userId: Int, topics: Seq[String], isSimple: Boolean): Seq[GdeltNews] = {
@@ -99,11 +100,12 @@ object SimulatedUser {
     )
   }
   def buildJsonRequest(userId: Int, topics: Seq[String], isSimple: Boolean): String = {
-    val jsonTopics = topics.map(s => JsString(s))
+    val jsonTopics = topics.map(JsString(_))
     val json = Json.obj(
       "userId" -> JsNumber(userId),
       "simple" -> JsBoolean(isSimple),
-      "topics" -> jsonTopics)
+      "topics" -> jsonTopics
+    )
     Json.stringify(json)
   }
 }
