@@ -23,7 +23,7 @@ object UserStats2Avro {
     val avroRecord = new GenericData.Record(userStatsAvroSchema)
     avroRecord.put("user_id", userId)
     avroRecord.put("num_user_topics", numUserTopics)
-    avroRecord.put("is_simple", isSimple)
+    avroRecord.put("score_type", isSimple.toString)
     recordInjection(avroRecord)
   }
 }
