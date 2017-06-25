@@ -16,6 +16,14 @@ import scala.collection.JavaConversions._
 import scala.util.Random
 import org.apache.kafka.clients.producer._
 
+import scala.concurrent.{Await, Future}
+import scala.concurrent.duration._
+import dispatch._
+import Defaults._
+
+import scala.collection.mutable
+
+
 case class GdeltNews(url: String, topics: Seq[String])
 
 object SimulatedUser {
@@ -24,16 +32,35 @@ object SimulatedUser {
   PropertyConfigurator.configure("log4j.properties")
   logger.setLevel(Level.toLevel(sys.env.getOrElse("LOG4J_LEVEL", "INFO")))
   def main(args: Array[String]): Unit = {
-    if (args.size == 2) {
-      run(0, args(0).toBoolean, args(1))
-    } else if (args.size > 2) {
+    val numUsers =
+      if (args.size > 2) args(2).toInt
+      else 1
+    if (args.size >= 2) {
       val isSimple = args(0).toBoolean
       val topic = args(1)
-      val numUsers = args(2).toInt
-      val tasks = 0 until numUsers map(
-        i => task({run(i, isSimple, topic)})
+      val queue = new mutable.Queue[(Future[String], AdditionalData)]
+      val producer = buildProducer()
+      for (i <- 0 until numUsers) {
+        val random = new Random(1000)
+        val additionalData = AdditionalData(
+          i, isSimple, mutable.Set.empty[String],
+          producer, topic, random
         )
-      tasks.foreach(_.join())
+        val f = Future {
+          getRandom()
+        }
+        queue += Tuple2(f, additionalData)
+      }
+      val consumeQueue = consumeFutureQueue[String, AdditionalData](newRecommendation)
+      var future: Future[String] = consumeQueue(queue)
+      val batchSize = sys.env.getOrElse("BATCH_SIZE_SIMULATED_USER", "10").toInt
+      val timeout = sys.env.getOrElse("TIMEOUT_SIMULATED_USER", "90").toInt
+      while (queue.size > 0) {
+        for (i <- 0 until batchSize) {
+          future = consumeQueue(queue)
+        }
+        Await.result(future, timeout seconds)
+      }
     } else {
       println(
         """Usage:
@@ -43,25 +70,38 @@ object SimulatedUser {
     }
 
   }
-  def run(userId: Int, isSimple: Boolean, kafkaTopic: String) = {
-    var result = getRandom()
-    val random = new Random(43)
-    var topics = result.topics.toSet
-    val producer = buildProducer()
-    while (true) {
-      logger.info(s"User $userId visited ${result.url}")
-      logger.info(s"topics ${topics}")
-      val recommendations = getRecommendations(userId, topics.toList, isSimple)
-      val choice = random.nextInt(Math.min(10, recommendations.size))
-      result = recommendations(choice)
-      topics = topics.union(result.topics.toSet)
-      val avroRecord = UserStats2Avro.encode(userId, topics.size, isSimple)
-      producer.send(new ProducerRecord(
-        kafkaTopic,
-        isSimple.toString,
-        avroRecord
-      ))
-    }
+  case class AdditionalData(userId: Int, isSimple: Boolean,
+                            topics: mutable.Set[String],
+                            producer: Producer[String, Array[Byte]],
+                            kafkaTopic: String, random: Random
+                           )
+  def newRecommendation(response: String, additionalData: AdditionalData): Future[String] = {
+    val json = Json.parse(response)
+    val recommendations = (json \ "recommendations").as[Seq[JsObject]].map(
+      jsObject => GdeltNews(
+        (jsObject \ "url").as[String],
+        (jsObject \ "topics").as[Seq[String]]
+      )
+    )
+    val choice = additionalData.random.nextInt(Math.min(10, recommendations.size))
+    val result = recommendations(choice)
+    additionalData.topics ++= result.topics
+    logger.info(s"User ${additionalData.userId} visited ${result.url}")
+    logger.info(s"topics ${additionalData.topics}")
+    val avroRecord = UserStats2Avro.encode(
+      additionalData.userId, additionalData.topics.size, additionalData.isSimple)
+    val key: String = additionalData.userId + " " + additionalData.isSimple
+    additionalData.producer.send(new ProducerRecord(
+      additionalData.kafkaTopic,
+      key, avroRecord
+    ))
+    getRecommendation(additionalData)
+  }
+  def getRecommendation(additionalData: AdditionalData): Future[String] = {
+    val request = url(apiUrl +  "/topics").POST
+    val body = buildJsonBody(additionalData)
+    val jsonRequest = request.setContentType("application/json", "UTF-8") << body
+    Http(jsonRequest OK as.String)
   }
   def buildProducer(): KafkaProducer[String, Array[Byte]] = {
     val props = new Properties()
@@ -71,39 +111,17 @@ object SimulatedUser {
     props.put("batch.size", "10")
     new KafkaProducer[String, Array[Byte]](props)
   }
-  def getRecommendations(userId: Int, topics: Seq[String], isSimple: Boolean): Seq[GdeltNews] = {
-    val client = HttpClientBuilder.create().build()
-    val request = new HttpPost(apiUrl + "/topics")
-    val requestEntity = new StringEntity(
-      buildJsonRequest(userId, topics, isSimple),
-      ContentType.APPLICATION_JSON)
-    request.setEntity(requestEntity)
-    val response = client.execute(request)
-    val jsonResponse = EntityUtils.toString(response.getEntity())
-    val json = Json.parse(jsonResponse)
-    (json \ "recommendations").as[Seq[JsObject]].map(
-      jsObject => GdeltNews(
-        (jsObject \ "url").as[String],
-        (jsObject \ "topics").as[Seq[String]]
-      )
-    )
-  }
-  def getRandom(): GdeltNews = {
+  def getRandom(): String = {
     val client = HttpClientBuilder.create().build()
     val request = new HttpGet(apiUrl + "/random")
     val response = client.execute(request)
-    val jsonResponse = EntityUtils.toString(response.getEntity())
-    val json = Json.parse(jsonResponse)
-    GdeltNews(
-      (json \ "url").as[String],
-      (json \ "topics").as[Seq[String]]
-    )
+    EntityUtils.toString(response.getEntity())
   }
-  def buildJsonRequest(userId: Int, topics: Seq[String], isSimple: Boolean): String = {
-    val jsonTopics = topics.map(JsString(_))
+  def buildJsonBody(additionalData: AdditionalData): String = {
+    val jsonTopics = additionalData.topics.toList.map(JsString(_))
     val json = Json.obj(
-      "userId" -> JsNumber(userId),
-      "simple" -> JsBoolean(isSimple),
+      "userId" -> JsNumber(additionalData.userId),
+      "simple" -> JsBoolean(additionalData.isSimple),
       "topics" -> jsonTopics
     )
     Json.stringify(json)

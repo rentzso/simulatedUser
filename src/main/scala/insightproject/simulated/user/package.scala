@@ -2,38 +2,24 @@ package insightproject.simulated
 
 import java.util.concurrent.{ForkJoinPool, ForkJoinTask, RecursiveTask}
 
+import scala.collection.mutable
+import scala.concurrent.Future
 import scala.util.DynamicVariable
+import scala.concurrent.ExecutionContext.Implicits.global
 
 /**
   * Created by rfrigato on 6/20/17.
   */
 package object user {
-  val forkJoinPool = new ForkJoinPool
-  class DefaultTaskScheduler {
-    def schedule[T](body: => T): ForkJoinTask[T] = {
-      val t = new RecursiveTask[T] {
-        def compute = body
-      }
-      forkJoinPool.execute(t)
-      t
-    }
-  }
-  val scheduler =
-    new DynamicVariable[DefaultTaskScheduler](new DefaultTaskScheduler)
+  def consumeFutureQueue[A, B](process: (A, B) => Future[A]):
+    mutable.Queue[(Future[A], B)]=> Future[A]= {
 
-  def task[T](body: => T): ForkJoinTask[T] = {
-    scheduler.value.schedule(body)
-  }
-
-  @annotation.tailrec
-  def retry[T](n: Int)(fn: => T): T = {
-    util.Try { fn } match {
-      case util.Success(x) => x
-      case _ if n > 1 => {
-        Thread.sleep(15000)
-        retry(n - 1)(fn)
-      }
-      case util.Failure(e) => throw e
+    def consume(q: mutable.Queue[(Future[A], B)]) = {
+      val (f, v) = q.dequeue()
+      val new_f = f.flatMap[A](process(_, v))
+      q += Tuple2(new_f, v)
+      new_f
     }
+    consume
   }
 }
