@@ -39,11 +39,12 @@ object SimulatedUser {
       val isSimple = args(0).toBoolean
       val topic = args(1)
       val queue = new mutable.Queue[(Future[String], AdditionalData)]
+      val producer = buildProducer()
       for (i <- 0 until numUsers) {
         val random = new Random(1000)
         val additionalData = AdditionalData(
           i, isSimple, mutable.Set.empty[String],
-          topic, random
+          producer, topic, random
         )
         val f = Future {
           getRandom()
@@ -71,6 +72,7 @@ object SimulatedUser {
   }
   case class AdditionalData(userId: Int, isSimple: Boolean,
                             topics: mutable.Set[String],
+                            producer: Producer[String, Array[Byte]],
                             kafkaTopic: String, random: Random
                            )
   def newRecommendation(response: String, additionalData: AdditionalData): Future[String] = {
@@ -86,6 +88,13 @@ object SimulatedUser {
     additionalData.topics ++= result.topics
     logger.info(s"User ${additionalData.userId} visited ${result.url}")
     logger.info(s"topics ${additionalData.topics}")
+    val avroRecord = UserStats2Avro.encode(
+      additionalData.userId, additionalData.topics.size, additionalData.isSimple)
+    val key: String = additionalData.userId + " " + additionalData.isSimple
+    additionalData.producer.send(new ProducerRecord(
+      additionalData.kafkaTopic,
+      key, avroRecord
+    ))
     getRecommendation(additionalData)
   }
   def getRecommendation(additionalData: AdditionalData): Future[String] = {
