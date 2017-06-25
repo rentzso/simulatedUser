@@ -24,7 +24,7 @@ import Defaults._
 import scala.collection.mutable
 
 
-case class GdeltNews(url: String, topics: Seq[String])
+case class GdeltNews(url: String, newsId: String, topics: Seq[String])
 
 object SimulatedUser {
   val apiUrl = sys.env.getOrElse("FLASK_ENDPOINT", "http://localhost")
@@ -80,16 +80,21 @@ object SimulatedUser {
     val recommendations = (json \ "recommendations").as[Seq[JsObject]].map(
       jsObject => GdeltNews(
         (jsObject \ "url").as[String],
+        (jsObject \ "id").as[String],
         (jsObject \ "topics").as[Seq[String]]
       )
     )
     val choice = additionalData.random.nextInt(Math.min(10, recommendations.size))
     val result = recommendations(choice)
+    val initialTopicsSize = additionalData.topics.size
     additionalData.topics ++= result.topics
     logger.info(s"User ${additionalData.userId} visited ${result.url}")
     logger.info(s"topics ${additionalData.topics}")
     val avroRecord = UserStats2Avro.encode(
-      additionalData.userId, additionalData.topics.size, additionalData.isSimple)
+      additionalData.userId, additionalData.topics.size,
+      additionalData.topics.size - initialTopicsSize,
+      additionalData.isSimple, result.newsId, result.url
+    )
     val key: String = additionalData.userId + " " + additionalData.isSimple
     additionalData.producer.send(new ProducerRecord(
       additionalData.kafkaTopic,

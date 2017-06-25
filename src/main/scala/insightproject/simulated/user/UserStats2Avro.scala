@@ -19,10 +19,15 @@ object UserStats2Avro {
   }
   val recordInjection : Injection[GenericRecord, Array[Byte]] =
     GenericAvroCodecs.toBinary[GenericRecord](userStatsAvroSchema)
-  def encode(userId: Int, numUserTopics: Int, isSimple: Boolean) = {
+  def encode(userId: Int, numUserTopics: Int, newUserTopics: Int,
+             isSimple: Boolean, newsId: String, newsUrl: String
+            ) = {
     val avroRecord = new GenericData.Record(userStatsAvroSchema)
     avroRecord.put("user_id", userId)
     avroRecord.put("num_user_topics", numUserTopics)
+    avroRecord.put("num_new_user_topics", newUserTopics)
+    avroRecord.put("news_id", newsId)
+    avroRecord.put("news_url", newsUrl)
     avroRecord.put("score_type", isSimple.toString)
     recordInjection(avroRecord)
   }
