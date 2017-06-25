@@ -20,7 +20,7 @@ object UserStats2Avro {
   val recordInjection : Injection[GenericRecord, Array[Byte]] =
     GenericAvroCodecs.toBinary[GenericRecord](userStatsAvroSchema)
   def encode(userId: Int, numUserTopics: Int, newUserTopics: Int,
-             isSimple: Boolean, newsId: String, newsUrl: String
+             isSimple: Boolean, newsId: String, newsUrl: String, took: Int
             ) = {
     val avroRecord = new GenericData.Record(userStatsAvroSchema)
     avroRecord.put("user_id", userId)
@@ -31,6 +31,7 @@ object UserStats2Avro {
     avroRecord.put("score_type", isSimple.toString)
     val timestamp = System.currentTimeMillis
     avroRecord.put("timestamp", timestamp)
+    avroRecord.put("took", took)
     recordInjection(avroRecord)
   }
 }

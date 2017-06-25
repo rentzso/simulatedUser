@@ -83,6 +83,7 @@ object SimulatedUser {
         (jsObject \ "topics").as[Seq[String]]
       )
     )
+    val took = (json \ "took").as[Int]
     val choice = additionalData.random.nextInt(Math.min(10, recommendations.size))
     val result = recommendations(choice)
     val initialTopicsSize = additionalData.topics.size
@@ -92,7 +93,8 @@ object SimulatedUser {
     val avroRecord = UserStats2Avro.encode(
       additionalData.userId, additionalData.topics.size,
       additionalData.topics.size - initialTopicsSize,
-      additionalData.isSimple, result.newsId, result.url
+      additionalData.isSimple, result.newsId, result.url,
+      took
     )
     val key: String = additionalData.userId + " " + additionalData.isSimple
     additionalData.producer.send(new ProducerRecord(
