@@ -29,6 +29,8 @@ object UserStats2Avro {
     avroRecord.put("news_id", newsId)
     avroRecord.put("news_url", newsUrl)
     avroRecord.put("score_type", isSimple.toString)
+    val timestamp = System.currentTimeMillis / 1000
+    avroRecord.put("timestamp", timestamp)
     recordInjection(avroRecord)
   }
 }

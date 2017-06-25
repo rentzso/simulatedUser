@@ -68,7 +68,6 @@ object SimulatedUser {
           |<true|false> <topic> <numUsers(optional)>
         """.stripMargin)
     }
-
   }
   case class AdditionalData(userId: Int, isSimple: Boolean,
                             topics: mutable.Set[String],
