@@ -38,7 +38,7 @@ object SimulatedUser {
     if (args.size >= 2) {
       val isSimple = args(0).toBoolean
       val topic = args(1)
-      val queue = new mutable.Queue[(Future[String], AdditionalData)]
+      val queue = new mutable.Queue[(Future[Option[String]], AdditionalData)]
       val producer = buildProducer()
       for (i <- 0 until numUsers) {
         val random = new Random(1000)
@@ -47,12 +47,12 @@ object SimulatedUser {
           producer, topic, random
         )
         val f = Future {
-          getRandom()
+          Some(getRandom())
         }
         queue += Tuple2(f, additionalData)
       }
-      val consumeQueue = consumeFutureQueue[String, AdditionalData](newRecommendation)
-      var future: Future[String] = consumeQueue(queue)
+      val consumeQueue = consumeFutureQueue[Option[String], AdditionalData](newRecommendationOption)
+      var future: Future[Option[String]] = consumeQueue(queue)
       val batchSize = sys.env.getOrElse("BATCH_SIZE_SIMULATED_USER", "10").toInt
       val timeout = sys.env.getOrElse("TIMEOUT_SIMULATED_USER", "90").toInt
       while (queue.size > 0) {
@@ -74,7 +74,13 @@ object SimulatedUser {
                             producer: Producer[String, Array[Byte]],
                             kafkaTopic: String, random: Random
                            )
-  def newRecommendation(response: String, additionalData: AdditionalData): Future[String] = {
+  def newRecommendationOption(response: Option[String], additionalData: AdditionalData) = {
+    response match {
+      case Some(s) => newRecommendation(s, additionalData)
+      case None => throw new Exception("http call failed")
+    }
+  }
+  def newRecommendation(response: String, additionalData: AdditionalData): Future[Option[String]] = {
     val json = Json.parse(response)
     val recommendations = (json \ "recommendations").as[Seq[JsObject]].map(
       jsObject => GdeltNews(
@@ -103,11 +109,11 @@ object SimulatedUser {
     ))
     getRecommendation(additionalData)
   }
-  def getRecommendation(additionalData: AdditionalData): Future[String] = {
+  def getRecommendation(additionalData: AdditionalData): Future[Option[String]] = {
     val request = url(apiUrl +  "/topics").POST
     val body = buildJsonBody(additionalData)
     val jsonRequest = request.setContentType("application/json", "UTF-8") << body
-    Http(jsonRequest OK as.String)
+    Http(jsonRequest OK as.String).option
   }
   def buildProducer(): KafkaProducer[String, Array[Byte]] = {
     val props = new Properties()
