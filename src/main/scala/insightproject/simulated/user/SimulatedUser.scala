@@ -102,12 +102,20 @@ object SimulatedUser {
       additionalData.isSimple, result.newsId, result.url,
       took
     )
-    val key: String = additionalData.userId + " " + additionalData.isSimple
-    additionalData.producer.send(new ProducerRecord(
-      additionalData.kafkaTopic,
-      key, avroRecord
-    ))
-    getRecommendation(additionalData)
+    if (additionalData.topics.size > 40) {
+      additionalData.topics.clear()
+      Future {
+        Some(getRandom())
+      }
+    } else {
+      val key: String = additionalData.userId + " " + additionalData.isSimple
+      additionalData.producer.send(new ProducerRecord(
+        additionalData.kafkaTopic,
+        key, avroRecord
+      ))
+      getRecommendation(additionalData)
+    }
+
   }
   def getRecommendation(additionalData: AdditionalData): Future[Option[String]] = {
     val request = url(apiUrl +  "/topics").POST
