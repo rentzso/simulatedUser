@@ -9,16 +9,35 @@ import org.apache.avro.Schema
 import org.apache.avro.generic.{GenericData, GenericRecord}
 
 /**
-  * Created by rfrigato on 6/22/17.
+  * Defines the methods used to create Avro messages with user statistics
   */
 object UserStats2Avro {
+  /**
+    * Creates the Avro schema used to create the Avro record
+    */
   val userStatsAvroSchema = {
     val parser = new Schema.Parser
     val schemaFile = getClass().getResourceAsStream("/avroSchemas/user-stats-avro-schema.json")
     parser.parse(schemaFile)
   }
+  /**
+    * Converts an Avro record into Bytes
+    */
   val recordInjection : Injection[GenericRecord, Array[Byte]] =
     GenericAvroCodecs.toBinary[GenericRecord](userStatsAvroSchema)
+
+  /**
+    * Encodes user statistics for one click event
+    *
+    * @param userId id of the user
+    * @param numUserTopics number of topics favorited by the user
+    * @param newUserTopics number of new topics the user was exposed
+    * @param isSimple true if the user is exposed to the standard recommendation system
+    * @param newsId id of this click news
+    * @param newsUrl url of this click news
+    * @param took time spent by elasticsearch to send the next recommendation
+    * @return a byte encoded message with the user click statistics
+    */
   def encode(userId: Int, numUserTopics: Int, newUserTopics: Int,
              isSimple: Boolean, newsId: String, newsUrl: String, took: Int
             ) = {
